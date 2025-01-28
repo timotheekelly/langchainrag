@@ -111,7 +111,7 @@ public class LangChainRagApp {
     }
 
     private static List<TextSegment> loadJsonDocuments(String resourcePath, int maxTokensPerChunk, int overlapTokens) throws IOException {
-        List<Document> documents = new ArrayList<>();
+        List<TextSegment> textSegments = new ArrayList<>();
 
         // Load file from resources using the ClassLoader
         InputStream inputStream = LangChainRagApp.class.getClassLoader().getResourceAsStream(resourcePath);
@@ -124,7 +124,10 @@ public class LangChainRagApp {
         ObjectMapper objectMapper = new ObjectMapper();
         BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
 
-        // Read the file line by line
+        // Batch size for processing
+        int batchSize = 500;  // Adjust batch size as needed
+        List<Document> batch = new ArrayList<>();
+
         String line;
         while ((line = reader.readLine()) != null) {
             JsonNode jsonNode = objectMapper.readTree(line);
@@ -134,10 +137,8 @@ public class LangChainRagApp {
             JsonNode metadataNode = jsonNode.path("metadata");
 
             if (body != null) {
-                // Combine title and body for better context
                 String text = (title != null ? title + "\n\n" + body : body);
 
-                // Parse metadata
                 Metadata metadata = new Metadata();
                 if (metadataNode != null && metadataNode.isObject()) {
                     Iterator<String> fieldNames = metadataNode.fieldNames();
@@ -147,15 +148,25 @@ public class LangChainRagApp {
                     }
                 }
 
-                // Create a Document
                 Document document = Document.from(text, metadata);
-                documents.add(document);
+                batch.add(document);
+
+                // If batch size is reached, process the batch
+                if (batch.size() >= batchSize) {
+                    textSegments.addAll(splitIntoChunks(batch, maxTokensPerChunk, overlapTokens));
+                    batch.clear();
+                }
             }
         }
 
-        // Split documents into text segments
-        return splitIntoChunks(documents, maxTokensPerChunk, overlapTokens);
+        // Process remaining documents in the last batch
+        if (!batch.isEmpty()) {
+            textSegments.addAll(splitIntoChunks(batch, maxTokensPerChunk, overlapTokens));
+        }
+
+        return textSegments;
     }
+
 
     private static List<TextSegment> splitIntoChunks(List<Document> documents, int maxTokensPerChunk, int overlapTokens) {
         // Create a tokenizer for OpenAI
